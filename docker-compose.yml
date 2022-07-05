@@ -1,0 +1,49 @@
+services:
+  laravel:
+    image: doppler/laravel-app
+    container_name: laravel-app
+    restart: always
+    stop_signal: SIGQUIT
+    environment:
+      - DOPPLER_TOKEN    
+    networks:
+      - php
+      - mysql
+    depends_on:
+      - mysql
+    ports:
+      - '9000:9000'
+
+  mysql:
+    image: mariadb:10
+    container_name: laravel-db
+    restart: always
+    environment:
+      - MARIADB_DATABASE
+      - MARIADB_USER
+      - MARIADB_PASSWORD
+      - MARIADB_ALLOW_EMPTY_ROOT_PASSWORD='yes' # Because this is a demo app
+    networks:
+      mysql:
+        aliases:
+          - db
+    ports:
+      - '3306:3306'
+
+  nginx:
+    image: doppler/laravel-nginx
+    container_name: laravel-nginx
+    restart: always
+    hostname: app.doppler.run
+    ports:
+      - '80:80'
+      - '8080:8080'
+      - '9090:9090'
+    networks:
+      - php
+    depends_on:
+      - laravel
+
+networks:
+  php:
+  mysql:

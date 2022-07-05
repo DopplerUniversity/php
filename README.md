@@ -1,129 +1,114 @@
-# Doppler Environment Variables Secrets Management for Laravel with PHP-FPM and NGINX on Ubuntu
+# Doppler PHP Sample Application
 
 ![Doppler Environment Variables Secrets Management for Laravel with PHP-FPM and NGINX on Ubuntu](https://repository-images.githubusercontent.com/399783760/98fbf2ed-eab2-48cf-8be5-85672c2edcfa)
 
-This guide will show you how to use the [Doppler CLI](https://docs.doppler.com/docs/cli) to generate a `.env` file for Laravel applications.
-
-> NOTE: If setting up a server from scratch, take a look at the [init.sh script](bin/init.sh) which although is used for testing purposes, contains all the commands required to set up PHP-FPM, NGINX, and Laravel on Ubuntu or Debian.
+This repository is a reference solution for using Doppler to manage secrets for PHP applications. It currently focusses on Laravel but the techniques shown here can be applied to any framework.
 
 ## What is Doppler?
 
-The [Doppler CLI](https://docs.doppler.com/docs/cli) provides easy access to secrets in every environment from local development to production and a single dashboard makes it easy for teams to centrally manage app configuration for any application, platform, and cloud provider.
-
-Learn more at our [product website](https://doppler.com) or [documentation](https://docs.doppler.com/docs/).
+[Doppler](https://www.doppler.com) is a SecretOps platform that keeps secrets and app configuration in sync sync across devices, environments, and team members.
 
 ## Requirements
 
-- Debian or Ubuntu machine or container
-- [Doppler CLI](https://docs.doppler.com/docs/cli)
-- [jq](https://stedolan.github.io/jq/download/)
+- [Doppler account](https://dashboard.doppler.com/register)
+- [Doppler CLI](https://docs.doppler.com/docs/install-cli)
+- Docker and Docker Compose
+- make
 
-## Create Project
+> NOTE: Docker Compose is used for simulating a production environment on your local machine and is not a requirement for using Doppler with PHP.
 
-If you haven't already, the first step is to create a project in Doppler for your application.
+## Setup
 
-Doppler works best when it is the single source of truth. This means using the Doppler CLI to fetch your application's secrets for a specific environment to then, dynamically generate the `.env` file.
-
-This can be done during deployment or when updating in place.
-
-You can create a Doppler project using the [dashboard](https://dashboard.doppler.com) or using the [Doppler CLI](https://docs.doppler.com/docs/enclave-installation) on your local machine:
+If haven't already, authenticate the Doppler CLI locally by running:
 
 ```sh
-# 1. Ensure CLI is authenticated
 doppler login
-
-# 2. Create project
-doppler projects create laravel
-
-# 3. Select project and environment
-doppler setup
 ```
 
-## Import Environment Variables
-
-The next step is to import the environment variables from your existing Laravel `.env` files into Doppler.
-
-This can be done via the [dashboard](https://dashboard.doppler.com) or [CLI](https://docs.doppler.com/docs/enclave-installation):
+Clone this repository and open a terminal in the root directory. Then create the sample Doppler project and build the required Docker containers:
 
 ```sh
-# 1. Ensure correct Project and Envirionment are selected.
-doppler setup
-
-# 2. Import .env file
-doppler import /path/to/.env
+make doppler-project
+make docker-build
 ```
 
-Then repeat this process for other environments, e.g. staging and production.
+## Production
 
-## Install Doppler CLI in Ubuntu
+Navigate to the [laravel-sample-app](https://dashboard.doppler.com/workplace/projects/laravel-sample-app/configs/prd) in the Doppler dashboard, then click on the **Access** tab.
 
-With the .env file for each environment now imported, it's time to install and configure the Doppler CLI on the machines hosting your Laravel application.
+Select the **Access** tab and click the **+ Generate** button to create a read-only [Service Token](https://docs.doppler.com/docs/service-tokens) and copy its value.
 
-To install the Doppler CLI, run:
+Then to simulate a production environment, expose the Service Token value using the `DOPPLER_TOKEN` environment variable. The Service Token is typically injected into your deployment via CI/CD job.
 
 ```sh
-curl -sLf --retry 3 --tlsv1.2 --proto "=https" 'https://packages.doppler.com/public/cli/gpg.DE2A7741A397C129.key' | apt-key add -
-echo "deb https://packages.doppler.com/public/cli/deb/debian any-version main" | tee /etc/apt/sources.list.d/doppler-cli.list
-apt-get update && apt-get install doppler
+export DOPPLER_TOKEN="dp.st.prd.xxxx"
 ```
 
-## Service Token
-
-A Doppler Service Token provides the Doppler CLI with read-only access to a specific Project and Config.
-
-Follow the instructions for [creating a Service Token](https://docs.doppler.com/docs/enclave-service-tokens#generating-a-service-token) and copy the value.
-
-Then configure the Doppler CLI on Ubuntu to use the Service Token by running:
-
-> NOTE: If multiple applications are on a single machine, change `--scope` to be the directory for each application
-
-```sh
-# Replace "dp.st.xxx" wth your Service Token value
-doppler configure set token "dp.st.xxx" --scope /
-```
-
-You can then test the Doppler CLI is configured correctly by running:
+You can verify access to Production secrets by running:
 
 ```sh
 doppler secrets
 ```
 
-## Generate .env File
-
-With everything in place, you can now generate the '.env` file with a single Doppler CLI command:
+Then start the application by running:
 
 ```sh
-doppler secrets download --no-file --format env-no-quotes > /path/to/laravel/app/.env
+make run
 ```
 
-This command could be run during deployment, as well as in place to sync the latest version of your secrets Doppler to the existing `.env` file.
+The application will then be served through NGINX at http://localhost/.
+
+Leave the server running as we'll using it next to demonstrate automatic secrets syncing.
+
+## Secrets Sync
+
+Incorporating automatic secrets syncing just needs a scheduler (e.g. cron) and a [secrets sync script](./laravel/bin/doppler-sync.sh):
+
+```
+* * * * * /usr/src/app/bin/doppler-sync.sh
+```
+
+To simulate scheduled updates, open a new terminal window and run:
+
+```sh
+make doppler-sync
+```
+
+Navigate to the [Doppler dashboard](https://dashboard.doppler.com/workplace/projects/laravel-sample-app/configs/prd), change the **APP_NAME** secret, then refresh the application page to confirm the secrets change has come through.
+
+## Database Migrations
+
+While each team will have their own process for applying database migrations in live environments, a simple mechanism is demonstrated in the [php-fpm-start.sh](./laravel/bin/php-fpm-start.sh) script by checking if the `DB_FORCE_MIGRATE` environment variable has a value of `yes` and force-running the migration command accordingly.
 
 ## Local Development
 
-During local development, you can mount an ephemeral `.env` file so it is deleted when the process exits:
-
+We'll simulate a development environment also using Docker Compose.
 
 ```sh
-doppler run --mount .env -- php artisan serve
+make dev
 ```
 
-## Docker
-
-To run this application using Docker, first build the image locally:
+Then in a new terminal attach to the shell in the Laravel container by running:
 
 ```sh
-docker build -t doppler/laravel .
+docker attach laravel-app
 ```
 
-Then run the container while also providing an auto-expiring Service Token:
+Then authenticate the CLI by running:
 
 ```sh
-	docker container run \
-	-it \
-	--rm \
-	--name doppler-laravel \
-	-e DOPPLER_TOKEN="$(doppler configs tokens create dev --max-age 1m --plain)" \
-	-p 8000:8000 \
-	doppler/laravel \
-	doppler run --mount .env -- php artisan serve --host 0.0.0.0 --port 8000
+doppler login
+
+Then start the development server using the Doppler CLI to mount an ephemeral .env file:
+
+```sh
+doppler run --mount .env -- php artisan serve --host 0.0.0.0 --port 9000
+```
+
+## Cleanup
+
+To cleanup the resources used for this sample app:
+
+```sh
+make cleanup
 ```

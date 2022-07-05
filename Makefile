@@ -1,35 +1,38 @@
 SHELL=/usr/bin/env bash
 
-IMAGE=doppler/laravel
-CONTAINER=doppler-laravel
-PORT=9090
+doppler-project:
+	doppler import
+	open https://dashboard.doppler.com/workplace/projects/laravel-sample-app/configs/prd
 
 docker-build:
-	docker build -t $(IMAGE) .
+	docker image build -t doppler/laravel-app -f laravel/Dockerfile .
+	docker image build -t doppler/laravel-nginx -f nginx/Dockerfile .
 
-docker-run:
-	docker container run \
-	-it \
-	--rm \
-	--name $(CONTAINER) \
-	-e DOPPLER_TOKEN="$$(doppler configs tokens create dev --max-age 30m --plain)" \
-	-p $(PORT):$(PORT) \
-	$(IMAGE) \
-	doppler run --mount .env -- php artisan serve --host 0.0.0.0 --port $(PORT)
+# Requires DOPPLER_TOKEN environment variable
+run:
+	@MARIADB_DATABASE="$$(doppler secrets get DB_NAME --plain)" \
+	MARIADB_USER="$$(doppler secrets get DB_USERNAME --plain)" \
+	MARIADB_PASSWORD="$$(doppler secrets get DB_PASSWORD --plain)" \
+	docker-compose up; docker-compose down;
 
-docker-run-dev:
-	docker container run \
-	-it \
-	--rm \
-	--name $(CONTAINER) \
-	-v ${PWD}/laravel:/usr/src/app \
-	-e DOPPLER_TOKEN="$$(doppler configs tokens create dev --max-age 30m --plain)" \
-	-p $(PORT):$(PORT) \
-	$(IMAGE) \
-	bash
-# 
-# doppler secrets download --no-file --format env > .env && php artisan config:cache && php artisan serve --host 0.0.0.0 --port 9090
-# doppler secrets download --no-file --format env > .env && php artisan config:clear && php artisan config:cache && && rm .env && php artisan serve --host 0.0.0.0 --port 9090
+# Requires DOPPLER_TOKEN environment variable or authenticating the CLI in the laravel-app container
+dev:
+	@MARIADB_DATABASE="$$(doppler secrets get DB_NAME --plain)" \
+	MARIADB_USER="$$(doppler secrets get DB_USERNAME --plain)" \
+	MARIADB_PASSWORD="$$(doppler secrets get DB_PASSWORD --plain)" \
+	docker-compose -f docker-compose.yml -f docker-compose-dev.yml up;
 
-docker-shell:
-	docker exec -it $(CONTAINER) bash
+doppler-sync:
+	@watch -n 5 docker exec laravel-app ./bin/doppler-sync.sh
+
+shell:
+	docker exec -it laravel-app bash
+
+attach:
+	docker attach laravel-app
+
+cleanup:
+	@$(MAKE) mysql-stop
+	@unset DOPPLER_TOKEN;
+	@doppler projects delete laravel-sample-app -y --silent;
+	@docker image rm doppler/laravel-app doppler/laravel-nginx
